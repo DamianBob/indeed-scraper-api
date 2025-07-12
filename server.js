@@ -152,18 +152,11 @@ async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scroll
     // Replace the puppeteer.launch() section with this:
 browser = await puppeteer.launch({
   headless: 'new',
-  executablePath: '/usr/bin/chromium-browser', // Force chromium path
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--single-process',
-    '--no-first-run'
-  ],
+  args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'],
   timeout: 60000,
   protocolTimeout: 60000
 });
+// NO executablePath line!
     console.log('Browser launched successfully');
     const page = await browser.newPage();
     
