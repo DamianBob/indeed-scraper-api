@@ -27,3 +27,9 @@
   "author": "Damian",
   "license": "MIT"
 }
+{
+  "scripts": {
+    "start": "npx puppeteer browsers install chrome && node server.js",
+    "postinstall": "npx puppeteer browsers install chrome"
+  }
+}
