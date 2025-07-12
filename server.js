@@ -8,13 +8,15 @@ puppeteer.use(StealthPlugin());
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-// Health check endpoint
+// Replace your health check endpoint with this:
 app.get('/', (req, res) => {
   res.json({ 
     status: 'Universal Job Scraper API is running',
     node_version: process.version,
     platform: process.platform,
     memory: process.memoryUsage(),
+    chrome_path: process.env.PUPPETEER_EXECUTABLE_PATH || 'not set',
+    chrome_skip_download: process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD || 'not set',
     capabilities: [
       'Universal website scraping',
       'Keyword-based job detection',
@@ -150,20 +152,17 @@ async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scroll
     // Replace the puppeteer.launch() section with this:
 browser = await puppeteer.launch({
   headless: 'new',
-  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+  executablePath: '/usr/bin/chromium-browser', // Force chromium path
   args: [
     '--no-sandbox',
     '--disable-setuid-sandbox',
     '--disable-dev-shm-usage',
     '--disable-gpu',
-    '--disable-software-rasterizer',
-    '--disable-dev-tools',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--no-pings',
-    '--single-process'
+    '--single-process',
+    '--no-first-run'
   ],
-  timeout: 60000
+  timeout: 60000,
+  protocolTimeout: 60000
 });
     console.log('Browser launched successfully');
     const page = await browser.newPage();
