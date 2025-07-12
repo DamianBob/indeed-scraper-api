@@ -1,8 +1,6 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const cheerio = require('cheerio');
-const URL = require('url-parse');
 
 // Add stealth plugin to avoid detection
 puppeteer.use(StealthPlugin());
@@ -454,8 +452,8 @@ async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scroll
           let href = linkElement.getAttribute('href');
           if (href) {
             if (href.startsWith('/')) {
-              const urlObj = new URL(baseUrl);
-              href = `${urlObj.protocol}//${urlObj.host}${href}`;
+              const baseUrlObj = new URL(baseUrl);
+              href = `${baseUrlObj.protocol}//${baseUrlObj.host}${href}`;
             } else if (!href.startsWith('http')) {
               href = `${baseUrl}/${href}`;
             }
@@ -562,61 +560,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Node.js version: ${process.version}`);
   console.log(`Platform: ${process.platform}`);
   console.log(`Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
-});
-
-module.exports = app; = element.querySelector(selector);
-          if (el) {
-            return el.getAttribute('title') || el.textContent.trim();
-          }
-        }
-        return null;
-      }
-
-      return extractedJobs;
-    }, limit);
-
-    console.log(`Successfully scraped ${jobs.length} jobs`);
-    return jobs;
-
-  } catch (error) {
-    console.error('Error in scrapeIndeed:', error);
-    throw error;
-  } finally {
-    if (browser) {
-      console.log('Closing browser...');
-      await browser.close();
-    }
-  }
-}
-
-// Helper function for random delays
-function randomDelay(min, max) {
-  const delay = Math.floor(Math.random() * (max - min + 1)) + min;
-  return new Promise(resolve => setTimeout(resolve, delay));
-}
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  process.exit(0);
-});
-
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Indeed Scraper API running on port ${PORT}`);
-  console.log(`Node.js version: ${process.version}`);
-  console.log(`Platform: ${process.platform}`);
 });
 
 module.exports = app;
