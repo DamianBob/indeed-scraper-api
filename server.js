@@ -651,5 +651,117 @@ app.listen(PORT, '0.0.0.0', () => {
     installChromeOnStartup();
   }, 5000); // Wait 5 seconds after server starts
 });
+// Add this debug endpoint to your server.js (after other endpoints)
 
+app.post('/debug-scrape', async (req, res) => {
+  let browser = null;
+  
+  try {
+    const { url } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+
+    console.log(`🔍 Debug scraping: ${url}`);
+    
+    // Launch browser
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--single-process'
+      ]
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1366, height: 768 });
+    
+    // Navigate to page
+    await page.goto(url, { 
+      waitUntil: 'domcontentloaded',
+      timeout: 45000 
+    });
+    
+    // Wait a bit
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
+    // Get page info
+    const title = await page.title();
+    const pageUrl = page.url();
+    
+    // Get page content (first 2000 chars)
+    const bodyText = await page.evaluate(() => {
+      return document.body ? document.body.textContent.substring(0, 2000) : 'No body found';
+    });
+    
+    // Test our selectors
+    const selectorResults = await page.evaluate(() => {
+      const selectors = [
+        '[data-jk]',
+        '.job_seen_beacon', 
+        '.job-card',
+        '.job-item',
+        '.job-listing',
+        'article',
+        '.card',
+        'tr',
+        'li'
+      ];
+      
+      const results = {};
+      
+      selectors.forEach(selector => {
+        try {
+          const elements = document.querySelectorAll(selector);
+          results[selector] = {
+            count: elements.length,
+            firstElementText: elements[0] ? elements[0].textContent.substring(0, 100) : 'none'
+          };
+        } catch (e) {
+          results[selector] = { error: e.message };
+        }
+      });
+      
+      return results;
+    });
+    
+    // Get HTML structure (first 1000 chars)
+    const htmlStructure = await page.evaluate(() => {
+      return document.documentElement.outerHTML.substring(0, 1000);
+    });
+    
+    res.json({
+      success: true,
+      url: url,
+      actualUrl: pageUrl,
+      title: title,
+      bodyTextSample: bodyText,
+      selectorResults: selectorResults,
+      htmlStructureSample: htmlStructure,
+      debugInfo: {
+        message: 'This shows what the scraper actually sees',
+        possibleIssues: [
+          'Page requires JavaScript to load content',
+          'Page is showing CAPTCHA or blocking message', 
+          'Selectors need to be updated for new HTML structure',
+          'Page redirected to different URL'
+        ]
+      }
+    });
+
+  } catch (error) {
+    console.error('Debug scraping error:', error);
+    res.status(500).json({ 
+      error: 'Debug scraping failed', 
+      message: error.message 
+    });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+});
 module.exports = app;
