@@ -1,4 +1,10 @@
 {
+{
+  "scripts": {
+    "start": "npx puppeteer browsers install chrome && node server.js",
+    "postinstall": "npx puppeteer browsers install chrome"
+  }
+}
   "name": "universal-job-scraper-api",
   "version": "1.0.0",
   "description": "Universal job scraper API service with anti-detection",
@@ -27,9 +33,4 @@
   "author": "Damian",
   "license": "MIT"
 }
-{
-  "scripts": {
-    "start": "npx puppeteer browsers install chrome && node server.js",
-    "postinstall": "npx puppeteer browsers install chrome"
-  }
-}
+
