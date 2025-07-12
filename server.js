@@ -1,42 +1,70 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const cheerio = require('cheerio');
+const URL = require('url-parse');
 
 // Add stealth plugin to avoid detection
 puppeteer.use(StealthPlugin());
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Health check endpoint
 app.get('/', (req, res) => {
   res.json({ 
-    status: 'Indeed Scraper API is running',
+    status: 'Universal Job Scraper API is running',
+    node_version: process.version,
+    platform: process.platform,
+    memory: process.memoryUsage(),
+    capabilities: [
+      'Universal website scraping',
+      'Keyword-based job detection',
+      'Anti-bot protection bypass',
+      'Flexible data extraction',
+      'Multiple website support'
+    ],
     endpoints: {
-      scrape: 'POST /scrape - Scrape Indeed job listings',
+      scrape: 'POST /scrape - Scrape any website for job listings',
+      bulk_scrape: 'POST /bulk-scrape - Scrape multiple websites',
       health: 'GET / - Health check'
     }
   });
 });
 
-// Main scraping endpoint
+// Single website scraping endpoint
 app.post('/scrape', async (req, res) => {
   try {
-    const { keywords, location = 'United States', limit = 20 } = req.body;
+    const { 
+      url, 
+      keywords = [], 
+      selectors = {},
+      limit = 20,
+      waitTime = 3000,
+      scrollPages = 1
+    } = req.body;
     
-    if (!keywords) {
-      return res.status(400).json({ error: 'Keywords are required' });
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
     }
 
-    console.log(`Starting scrape for: ${keywords} in ${location}`);
+    console.log(`Starting scrape for: ${url} with keywords: ${keywords.join(', ')}`);
     
-    const jobs = await scrapeIndeed(keywords, location, limit);
+    const jobs = await scrapeWebsite({
+      url,
+      keywords,
+      selectors,
+      limit,
+      waitTime,
+      scrollPages
+    });
     
     res.json({
       success: true,
+      url,
       keywords,
-      location,
       totalJobs: jobs.length,
+      scrapedAt: new Date().toISOString(),
       jobs
     });
 
@@ -44,18 +72,86 @@ app.post('/scrape', async (req, res) => {
     console.error('Scraping error:', error);
     res.status(500).json({ 
       error: 'Scraping failed', 
+      message: error.message,
+      url: req.body.url
+    });
+  }
+});
+
+// Bulk scraping endpoint for multiple websites
+app.post('/bulk-scrape', async (req, res) => {
+  try {
+    const { websites = [] } = req.body;
+    
+    if (!websites.length) {
+      return res.status(400).json({ error: 'Websites array is required' });
+    }
+
+    console.log(`Starting bulk scrape for ${websites.length} websites`);
+    
+    const results = [];
+    
+    for (const website of websites) {
+      try {
+        console.log(`Scraping: ${website.url}`);
+        
+        const jobs = await scrapeWebsite({
+          url: website.url,
+          keywords: website.keywords || [],
+          selectors: website.selectors || {},
+          limit: website.limit || 20,
+          waitTime: website.waitTime || 3000,
+          scrollPages: website.scrollPages || 1
+        });
+        
+        results.push({
+          success: true,
+          url: website.url,
+          keywords: website.keywords || [],
+          totalJobs: jobs.length,
+          jobs,
+          scrapedAt: new Date().toISOString()
+        });
+        
+        // Delay between websites to be respectful
+        await randomDelay(2000, 5000);
+        
+      } catch (error) {
+        console.error(`Error scraping ${website.url}:`, error);
+        results.push({
+          success: false,
+          url: website.url,
+          error: error.message,
+          scrapedAt: new Date().toISOString()
+        });
+      }
+    }
+    
+    res.json({
+      success: true,
+      totalWebsites: websites.length,
+      successfulScrapes: results.filter(r => r.success).length,
+      results
+    });
+
+  } catch (error) {
+    console.error('Bulk scraping error:', error);
+    res.status(500).json({ 
+      error: 'Bulk scraping failed', 
       message: error.message 
     });
   }
 });
 
-async function scrapeIndeed(keywords, location, limit) {
+async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scrollPages }) {
   let browser = null;
   
   try {
-    // Launch browser with stealth configuration
+    console.log('Launching browser...');
+    
+    // Optimized browser configuration for Render
     browser = await puppeteer.launch({
-      headless: true,
+      headless: 'new',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -63,15 +159,26 @@ async function scrapeIndeed(keywords, location, limit) {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
+        '--single-process',
         '--disable-gpu',
-        '--window-size=1920,1080'
-      ]
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-features=TranslateUI',
+        '--disable-ipc-flooding-protection',
+        '--window-size=1366,768',
+        '--memory-pressure-off',
+        '--max_old_space_size=4096'
+      ],
+      timeout: 60000,
+      protocolTimeout: 60000
     });
 
+    console.log('Browser launched successfully');
     const page = await browser.newPage();
     
     // Set realistic viewport and user agent
-    await page.setViewport({ width: 1920, height: 1080 });
+    await page.setViewport({ width: 1366, height: 768 });
     
     // Set additional headers to look more human
     await page.setExtraHTTPHeaders({
@@ -80,12 +187,18 @@ async function scrapeIndeed(keywords, location, limit) {
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
       'Connection': 'keep-alive',
       'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1'
     });
 
     // Override navigator properties to look more human
     await page.evaluateOnNewDocument(() => {
       // Remove webdriver property
-      delete navigator.__proto__.webdriver;
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
       
       // Override languages
       Object.defineProperty(navigator, 'languages', {
@@ -96,71 +209,367 @@ async function scrapeIndeed(keywords, location, limit) {
       Object.defineProperty(navigator, 'platform', {
         get: () => 'Win32'
       });
+
+      // Override plugins
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5]
+      });
+
+      // Override chrome object
+      window.chrome = {
+        runtime: {}
+      };
+
+      // Override permissions
+      const originalQuery = window.navigator.permissions.query;
+      window.navigator.permissions.query = (parameters) => (
+        parameters.name === 'notifications' ?
+          Promise.resolve({ state: Notification.permission }) :
+          originalQuery(parameters)
+      );
     });
 
-    // Build Indeed search URL
-    const encodedKeywords = encodeURIComponent(keywords);
-    const encodedLocation = encodeURIComponent(location);
-    const searchUrl = `https://www.indeed.com/jobs?q=${encodedKeywords}&l=${encodedLocation}&sort=date`;
+    console.log(`Navigating to: ${url}`);
     
-    console.log(`Navigating to: ${searchUrl}`);
-    
-    // Navigate to Indeed with realistic timing
-    await page.goto(searchUrl, { 
-      waitUntil: 'networkidle2',
-      timeout: 30000 
+    // Navigate to website
+    await page.goto(url, { 
+      waitUntil: 'domcontentloaded',
+      timeout: 45000 
     });
 
-    // Random delay to appear more human
-    await randomDelay(2000, 4000);
+    console.log('Page loaded, waiting for content...');
+
+    // Wait for initial content to load
+    await randomDelay(waitTime, waitTime + 2000);
 
     // Check if we got blocked
     const title = await page.title();
-    if (title.includes('blocked') || title.includes('captcha')) {
-      throw new Error('Blocked by Indeed - may need to adjust approach');
+    console.log(`Page title: ${title}`);
+    
+    if (title.toLowerCase().includes('blocked') || 
+        title.toLowerCase().includes('captcha') || 
+        title.toLowerCase().includes('access denied') ||
+        title.toLowerCase().includes('403') ||
+        title.toLowerCase().includes('forbidden')) {
+      throw new Error(`Blocked by website - Page title: ${title}`);
     }
 
-    // Wait for job listings to load
-    await page.waitForSelector('[data-jk]', { timeout: 15000 });
+    // Scroll through pages if specified
+    for (let i = 0; i < scrollPages; i++) {
+      if (i > 0) {
+        console.log(`Scrolling page ${i + 1}...`);
+        await page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight);
+        });
+        await randomDelay(2000, 4000);
+      }
+    }
 
-    // Extract job data
-    const jobs = await page.evaluate((limit) => {
-      const jobElements = document.querySelectorAll('[data-jk]');
+    // Extract job data using intelligent detection
+    const jobs = await page.evaluate((keywords, selectors, limit, url) => {
       const extractedJobs = [];
+      
+      // Smart job detection - try multiple approaches
+      const jobElements = findJobElements(selectors);
+      
+      console.log(`Found ${jobElements.length} potential job elements`);
 
       for (let i = 0; i < Math.min(jobElements.length, limit); i++) {
         const jobElement = jobElements[i];
         
         try {
-          // Extract job details
-          const titleElement = jobElement.querySelector('h2 a span[title]');
-          const companyElement = jobElement.querySelector('[data-testid="company-name"]');
-          const locationElement = jobElement.querySelector('[data-testid="job-location"]');
-          const salaryElement = jobElement.querySelector('[data-testid="attribute_snippet_testid"]');
-          const summaryElement = jobElement.querySelector('[data-testid="job-snippet"]');
-          const linkElement = jobElement.querySelector('h2 a');
-          const dateElement = jobElement.querySelector('[data-testid="myJobsStateDate"]');
-
-          // Build job object
-          const job = {
-            title: titleElement ? titleElement.getAttribute('title') : 'N/A',
-            company: companyElement ? companyElement.textContent.trim() : 'N/A',
-            location: locationElement ? locationElement.textContent.trim() : 'N/A',
-            salary: salaryElement ? salaryElement.textContent.trim() : 'N/A',
-            summary: summaryElement ? summaryElement.textContent.trim() : 'N/A',
-            url: linkElement ? 'https://www.indeed.com' + linkElement.getAttribute('href') : 'N/A',
-            datePosted: dateElement ? dateElement.textContent.trim() : 'N/A',
-            jobId: jobElement.getAttribute('data-jk'),
-            scrapedAt: new Date().toISOString()
-          };
-
-          // Only add jobs with valid titles
-          if (job.title !== 'N/A' && job.title.length > 0) {
+          const job = extractJobData(jobElement, url, selectors);
+          
+          // Keyword filtering if keywords provided
+          if (keywords.length > 0) {
+            const jobText = `${job.title} ${job.description} ${job.company}`.toLowerCase();
+            const hasKeyword = keywords.some(keyword => 
+              jobText.includes(keyword.toLowerCase())
+            );
+            
+            if (!hasKeyword) continue;
+          }
+          
+          if (job.title && job.title.trim().length > 0) {
             extractedJobs.push(job);
           }
         } catch (error) {
           console.log('Error extracting job:', error);
         }
+      }
+
+      // Helper function to find job elements
+      function findJobElements(customSelectors) {
+        const selectors = [
+          // Custom selectors first
+          ...(customSelectors.jobContainer ? [customSelectors.jobContainer] : []),
+          
+          // Common job listing selectors
+          '[data-jk]', // Indeed
+          '.job_seen_beacon', // Indeed alternative
+          '.job-card', // Generic
+          '.job-item', // Generic
+          '.job-listing', // Generic
+          '.vacancy', // Generic
+          '.position', // Generic
+          '.career-item', // Career pages
+          '.job-result', // Job boards
+          '.opening', // Company pages
+          '[class*="job"]', // Any class containing "job"
+          '[class*="position"]', // Any class containing "position"
+          '[class*="vacancy"]', // Any class containing "vacancy"
+          '[class*="career"]', // Any class containing "career"
+          'article', // Article elements (common for job posts)
+          '.card', // Card layouts
+          '.list-item', // List items
+          '.row', // Bootstrap rows
+          'tr', // Table rows
+          'li' // List items
+        ];
+        
+        let elements = [];
+        
+        for (const selector of selectors) {
+          try {
+            const found = Array.from(document.querySelectorAll(selector));
+            if (found.length > 0) {
+              console.log(`Found ${found.length} elements with selector: ${selector}`);
+              
+              // Filter elements that likely contain job data
+              const filtered = found.filter(el => {
+                const text = el.textContent.toLowerCase();
+                const hasJobKeywords = /job|position|vacancy|career|hiring|employment|work|role|opportunity/.test(text);
+                const hasMinContent = text.length > 50; // Minimum content length
+                return hasJobKeywords && hasMinContent;
+              });
+              
+              if (filtered.length > 0) {
+                elements = filtered;
+                break;
+              }
+            }
+          } catch (e) {
+            console.log(`Selector failed: ${selector}`, e);
+          }
+        }
+        
+        return elements;
+      }
+
+      // Helper function to extract job data from element
+      function extractJobData(element, baseUrl, customSelectors) {
+        const job = {
+          title: '',
+          company: '',
+          location: '',
+          salary: '',
+          description: '',
+          url: '',
+          datePosted: '',
+          jobId: '',
+          scrapedAt: new Date().toISOString(),
+          source: baseUrl
+        };
+
+        // Title extraction
+        const titleSelectors = [
+          customSelectors.title,
+          'h1', 'h2', 'h3', 'h4',
+          '[data-testid*="title"]',
+          '[class*="title"]',
+          '[class*="job-title"]',
+          '[class*="position"]',
+          'a[href*="job"]',
+          '.job-link',
+          'strong',
+          '.name'
+        ].filter(Boolean);
+        
+        job.title = getTextBySelectors(element, titleSelectors) || '';
+
+        // Company extraction
+        const companySelectors = [
+          customSelectors.company,
+          '[data-testid*="company"]',
+          '[class*="company"]',
+          '[class*="employer"]',
+          '[class*="organization"]',
+          '.company-name',
+          '.employer',
+          '.org'
+        ].filter(Boolean);
+        
+        job.company = getTextBySelectors(element, companySelectors) || '';
+
+        // Location extraction
+        const locationSelectors = [
+          customSelectors.location,
+          '[data-testid*="location"]',
+          '[class*="location"]',
+          '[class*="city"]',
+          '[class*="address"]',
+          '.location',
+          '.city',
+          '.address'
+        ].filter(Boolean);
+        
+        job.location = getTextBySelectors(element, locationSelectors) || '';
+
+        // Salary extraction
+        const salarySelectors = [
+          customSelectors.salary,
+          '[data-testid*="salary"]',
+          '[class*="salary"]',
+          '[class*="pay"]',
+          '[class*="wage"]',
+          '[class*="compensation"]',
+          '.salary',
+          '.pay',
+          '.wage'
+        ].filter(Boolean);
+        
+        job.salary = getTextBySelectors(element, salarySelectors) || '';
+
+        // Description extraction
+        const descriptionSelectors = [
+          customSelectors.description,
+          '[data-testid*="description"]',
+          '[data-testid*="snippet"]',
+          '[class*="description"]',
+          '[class*="summary"]',
+          '[class*="snippet"]',
+          '.description',
+          '.summary',
+          '.snippet',
+          'p'
+        ].filter(Boolean);
+        
+        job.description = getTextBySelectors(element, descriptionSelectors) || '';
+
+        // URL extraction
+        const linkElement = element.querySelector('a[href]') || 
+                            element.closest('a[href]') ||
+                            element.querySelector('[href]');
+        if (linkElement) {
+          let href = linkElement.getAttribute('href');
+          if (href) {
+            if (href.startsWith('/')) {
+              const urlObj = new URL(baseUrl);
+              href = `${urlObj.protocol}//${urlObj.host}${href}`;
+            } else if (!href.startsWith('http')) {
+              href = `${baseUrl}/${href}`;
+            }
+            job.url = href;
+          }
+        }
+
+        // Date extraction
+        const dateSelectors = [
+          customSelectors.date,
+          '[data-testid*="date"]',
+          '[class*="date"]',
+          '[class*="time"]',
+          '[class*="posted"]',
+          '.date',
+          '.time',
+          '.posted',
+          'time'
+        ].filter(Boolean);
+        
+        job.datePosted = getTextBySelectors(element, dateSelectors) || '';
+
+        // Job ID extraction
+        job.jobId = element.getAttribute('data-jk') || 
+                   element.getAttribute('id') || 
+                   element.getAttribute('data-id') ||
+                   `job_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Clean up extracted data
+        Object.keys(job).forEach(key => {
+          if (typeof job[key] === 'string') {
+            job[key] = job[key].trim().replace(/\s+/g, ' ');
+            if (job[key].length > 500 && key === 'description') {
+              job[key] = job[key].substring(0, 500) + '...';
+            }
+          }
+        });
+
+        return job;
+      }
+
+      // Helper function to try multiple selectors
+      function getTextBySelectors(element, selectors) {
+        for (const selector of selectors) {
+          if (!selector) continue;
+          
+          try {
+            const el = element.querySelector(selector);
+            if (el) {
+              return el.getAttribute('title') || 
+                     el.getAttribute('aria-label') || 
+                     el.textContent.trim();
+            }
+          } catch (e) {
+            // Selector failed, try next
+          }
+        }
+        return null;
+      }
+
+      return extractedJobs;
+    }, keywords, selectors, limit, url);
+
+    console.log(`Successfully scraped ${jobs.length} jobs from ${url}`);
+    return jobs;
+
+  } catch (error) {
+    console.error('Error in scrapeWebsite:', error);
+    throw error;
+  } finally {
+    if (browser) {
+      console.log('Closing browser...');
+      await browser.close();
+    }
+  }
+}
+
+// Helper function for random delays
+function randomDelay(min, max) {
+  const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+  return new Promise(resolve => setTimeout(resolve, delay));
+}
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  process.exit(0);
+});
+
+// Error handling middleware
+app.use((error, req, res, next) => {
+  console.error('Unhandled error:', error);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Universal Job Scraper API running on port ${PORT}`);
+  console.log(`Node.js version: ${process.version}`);
+  console.log(`Platform: ${process.platform}`);
+  console.log(`Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
+});
+
+module.exports = app; = element.querySelector(selector);
+          if (el) {
+            return el.getAttribute('title') || el.textContent.trim();
+          }
+        }
+        return null;
       }
 
       return extractedJobs;
@@ -174,6 +583,7 @@ async function scrapeIndeed(keywords, location, limit) {
     throw error;
   } finally {
     if (browser) {
+      console.log('Closing browser...');
       await browser.close();
     }
   }
@@ -185,6 +595,17 @@ function randomDelay(min, max) {
   return new Promise(resolve => setTimeout(resolve, delay));
 }
 
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  process.exit(0);
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
@@ -192,8 +613,10 @@ app.use((error, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Indeed Scraper API running on port ${PORT}`);
+  console.log(`Node.js version: ${process.version}`);
+  console.log(`Platform: ${process.platform}`);
 });
 
 module.exports = app;
