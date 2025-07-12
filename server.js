@@ -545,6 +545,77 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Node.js version: ${process.version}`);
   console.log(`Platform: ${process.platform}`);
   console.log(`Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
+  
+  // Install Chrome on startup if not found
+  installChromeOnStartup();
+});
+
+async function installChromeOnStartup() {
+  try {
+    console.log('🔍 Checking Chrome installation...');
+    
+    // Try to launch browser to test if Chrome exists
+    const testBrowser = await puppeteer.launch({ headless: 'new' });
+    await testBrowser.close();
+    console.log('✅ Chrome is already available');
+    
+  } catch (error) {
+    console.log('❌ Chrome not found, installing...');
+    
+    try {
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+      
+      console.log('📦 Installing Chrome via Puppeteer...');
+      await execAsync('npx puppeteer browsers install chrome', { 
+        timeout: 300000 // 5 minutes
+      });
+      
+      console.log('✅ Chrome installation completed');
+      
+      // Test installation
+      const testBrowser = await puppeteer.launch({ headless: 'new' });
+      await testBrowser.close();
+      console.log('✅ Chrome installation verified');
+      
+    } catch (installError) {
+      console.error('❌ Chrome installation failed:', installError.message);
+    }
+  }
+}
+// Add this endpoint to your server.js
+app.post('/install-chrome', async (req, res) => {
+  try {
+    console.log('🔧 Manual Chrome installation requested...');
+    
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+    
+    const { stdout, stderr } = await execAsync('npx puppeteer browsers install chrome', {
+      timeout: 300000 // 5 minutes
+    });
+    
+    // Test the installation
+    const testBrowser = await puppeteer.launch({ headless: 'new' });
+    await testBrowser.close();
+    
+    res.json({
+      success: true,
+      message: 'Chrome installation completed and verified',
+      stdout: stdout,
+      stderr: stderr
+    });
+    
+  } catch (error) {
+    console.error('Chrome installation failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Chrome installation failed',
+      message: error.message
+    });
+  }
 });
 
 module.exports = app;
