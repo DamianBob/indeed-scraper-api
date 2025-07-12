@@ -147,31 +147,24 @@ async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scroll
   try {
     console.log('Launching browser...');
     
-    // Optimized browser configuration for Render
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding',
-        '--disable-features=TranslateUI',
-        '--disable-ipc-flooding-protection',
-        '--window-size=1366,768',
-        '--memory-pressure-off',
-        '--max_old_space_size=4096'
-      ],
-      timeout: 60000,
-      protocolTimeout: 60000
-    });
-
+    // Replace the puppeteer.launch() section with this:
+browser = await puppeteer.launch({
+  headless: 'new',
+  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-software-rasterizer',
+    '--disable-dev-tools',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--no-pings',
+    '--single-process'
+  ],
+  timeout: 60000
+});
     console.log('Browser launched successfully');
     const page = await browser.newPage();
     
