@@ -8,28 +8,66 @@ puppeteer.use(StealthPlugin());
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-// Replace your health check endpoint with this:
+// Health check endpoint with Chrome status
 app.get('/', (req, res) => {
   res.json({ 
     status: 'Universal Job Scraper API is running',
     node_version: process.version,
     platform: process.platform,
     memory: process.memoryUsage(),
-    chrome_path: process.env.PUPPETEER_EXECUTABLE_PATH || 'not set',
-    chrome_skip_download: process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD || 'not set',
+    chrome_cache_dir: process.env.PUPPETEER_CACHE_DIR || '/opt/render/.cache/puppeteer',
     capabilities: [
       'Universal website scraping',
       'Keyword-based job detection',
       'Anti-bot protection bypass',
       'Flexible data extraction',
-      'Multiple website support'
+      'Multiple website support',
+      'Auto Chrome installation'
     ],
     endpoints: {
       scrape: 'POST /scrape - Scrape any website for job listings',
       bulk_scrape: 'POST /bulk-scrape - Scrape multiple websites',
+      install_chrome: 'POST /install-chrome - Manually install Chrome',
       health: 'GET / - Health check'
     }
   });
+});
+
+// Manual Chrome installation endpoint
+app.post('/install-chrome', async (req, res) => {
+  try {
+    console.log('🔧 Manual Chrome installation requested...');
+    
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+    
+    const { stdout, stderr } = await execAsync('npx puppeteer browsers install chrome', {
+      timeout: 300000 // 5 minutes
+    });
+    
+    // Test the installation
+    const testBrowser = await puppeteer.launch({ 
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    await testBrowser.close();
+    
+    res.json({
+      success: true,
+      message: 'Chrome installation completed and verified',
+      stdout: stdout,
+      stderr: stderr
+    });
+    
+  } catch (error) {
+    console.error('Chrome installation failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Chrome installation failed',
+      message: error.message
+    });
+  }
 });
 
 // Single website scraping endpoint
@@ -147,17 +185,33 @@ async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scroll
   let browser = null;
   
   try {
-    console.log('Launching browser...');
+    console.log('🚀 Launching browser...');
     
-    // Replace the puppeteer.launch() section with this:
-browser = await puppeteer.launch({
-  headless: 'new',
-  args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'],
-  timeout: 60000,
-  protocolTimeout: 60000
-});
-// NO executablePath line!
-    console.log('Browser launched successfully');
+    // Launch browser with auto Chrome detection (no hardcoded paths)
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-features=TranslateUI',
+        '--disable-ipc-flooding-protection',
+        '--window-size=1366,768',
+        '--memory-pressure-off'
+      ],
+      timeout: 60000,
+      protocolTimeout: 60000
+    });
+
+    console.log('✅ Browser launched successfully');
     const page = await browser.newPage();
     
     // Set realistic viewport and user agent
@@ -212,7 +266,7 @@ browser = await puppeteer.launch({
       );
     });
 
-    console.log(`Navigating to: ${url}`);
+    console.log(`🌐 Navigating to: ${url}`);
     
     // Navigate to website
     await page.goto(url, { 
@@ -220,14 +274,14 @@ browser = await puppeteer.launch({
       timeout: 45000 
     });
 
-    console.log('Page loaded, waiting for content...');
+    console.log('⏳ Page loaded, waiting for content...');
 
     // Wait for initial content to load
     await randomDelay(waitTime, waitTime + 2000);
 
     // Check if we got blocked
     const title = await page.title();
-    console.log(`Page title: ${title}`);
+    console.log(`📄 Page title: ${title}`);
     
     if (title.toLowerCase().includes('blocked') || 
         title.toLowerCase().includes('captcha') || 
@@ -240,7 +294,7 @@ browser = await puppeteer.launch({
     // Scroll through pages if specified
     for (let i = 0; i < scrollPages; i++) {
       if (i > 0) {
-        console.log(`Scrolling page ${i + 1}...`);
+        console.log(`📜 Scrolling page ${i + 1}...`);
         await page.evaluate(() => {
           window.scrollTo(0, document.body.scrollHeight);
         });
@@ -437,8 +491,12 @@ browser = await puppeteer.launch({
           let href = linkElement.getAttribute('href');
           if (href) {
             if (href.startsWith('/')) {
-              const baseUrlObj = new URL(baseUrl);
-              href = `${baseUrlObj.protocol}//${baseUrlObj.host}${href}`;
+              try {
+                const baseUrlObj = new URL(baseUrl);
+                href = `${baseUrlObj.protocol}//${baseUrlObj.host}${href}`;
+              } catch (e) {
+                href = `${baseUrl}${href}`;
+              }
             } else if (!href.startsWith('http')) {
               href = `${baseUrl}/${href}`;
             }
@@ -502,15 +560,15 @@ browser = await puppeteer.launch({
       return extractedJobs;
     }, keywords, selectors, limit, url);
 
-    console.log(`Successfully scraped ${jobs.length} jobs from ${url}`);
+    console.log(`✅ Successfully scraped ${jobs.length} jobs from ${url}`);
     return jobs;
 
   } catch (error) {
-    console.error('Error in scrapeWebsite:', error);
+    console.error('❌ Error in scrapeWebsite:', error);
     throw error;
   } finally {
     if (browser) {
-      console.log('Closing browser...');
+      console.log('🔒 Closing browser...');
       await browser.close();
     }
   }
@@ -520,6 +578,48 @@ browser = await puppeteer.launch({
 function randomDelay(min, max) {
   const delay = Math.floor(Math.random() * (max - min + 1)) + min;
   return new Promise(resolve => setTimeout(resolve, delay));
+}
+
+// Auto-install Chrome on startup
+async function installChromeOnStartup() {
+  try {
+    console.log('🔍 Checking Chrome installation...');
+    
+    // Try to launch browser to test if Chrome exists
+    const testBrowser = await puppeteer.launch({ 
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    await testBrowser.close();
+    console.log('✅ Chrome is already available');
+    
+  } catch (error) {
+    console.log('❌ Chrome not found, installing...');
+    
+    try {
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+      
+      console.log('📦 Installing Chrome via Puppeteer...');
+      await execAsync('npx puppeteer browsers install chrome', { 
+        timeout: 300000 // 5 minutes
+      });
+      
+      console.log('✅ Chrome installation completed');
+      
+      // Test installation
+      const testBrowser = await puppeteer.launch({ 
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      await testBrowser.close();
+      console.log('✅ Chrome installation verified');
+      
+    } catch (installError) {
+      console.error('❌ Chrome installation failed:', installError.message);
+    }
+  }
 }
 
 // Graceful shutdown
@@ -541,81 +641,15 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Universal Job Scraper API running on port ${PORT}`);
-  console.log(`Node.js version: ${process.version}`);
-  console.log(`Platform: ${process.platform}`);
-  console.log(`Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
+  console.log(`🚀 Universal Job Scraper API running on port ${PORT}`);
+  console.log(`📋 Node.js version: ${process.version}`);
+  console.log(`💻 Platform: ${process.platform}`);
+  console.log(`💾 Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
   
-  // Install Chrome on startup if not found
-  installChromeOnStartup();
-});
-
-async function installChromeOnStartup() {
-  try {
-    console.log('🔍 Checking Chrome installation...');
-    
-    // Try to launch browser to test if Chrome exists
-    const testBrowser = await puppeteer.launch({ headless: 'new' });
-    await testBrowser.close();
-    console.log('✅ Chrome is already available');
-    
-  } catch (error) {
-    console.log('❌ Chrome not found, installing...');
-    
-    try {
-      const { exec } = require('child_process');
-      const { promisify } = require('util');
-      const execAsync = promisify(exec);
-      
-      console.log('📦 Installing Chrome via Puppeteer...');
-      await execAsync('npx puppeteer browsers install chrome', { 
-        timeout: 300000 // 5 minutes
-      });
-      
-      console.log('✅ Chrome installation completed');
-      
-      // Test installation
-      const testBrowser = await puppeteer.launch({ headless: 'new' });
-      await testBrowser.close();
-      console.log('✅ Chrome installation verified');
-      
-    } catch (installError) {
-      console.error('❌ Chrome installation failed:', installError.message);
-    }
-  }
-}
-// Add this endpoint to your server.js
-app.post('/install-chrome', async (req, res) => {
-  try {
-    console.log('🔧 Manual Chrome installation requested...');
-    
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-    
-    const { stdout, stderr } = await execAsync('npx puppeteer browsers install chrome', {
-      timeout: 300000 // 5 minutes
-    });
-    
-    // Test the installation
-    const testBrowser = await puppeteer.launch({ headless: 'new' });
-    await testBrowser.close();
-    
-    res.json({
-      success: true,
-      message: 'Chrome installation completed and verified',
-      stdout: stdout,
-      stderr: stderr
-    });
-    
-  } catch (error) {
-    console.error('Chrome installation failed:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Chrome installation failed',
-      message: error.message
-    });
-  }
+  // Install Chrome on startup after a brief delay
+  setTimeout(() => {
+    installChromeOnStartup();
+  }, 5000); // Wait 5 seconds after server starts
 });
 
 module.exports = app;
