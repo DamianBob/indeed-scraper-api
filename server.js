@@ -8,102 +8,64 @@ puppeteer.use(StealthPlugin());
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-// Health check endpoint with Chrome status
+// Health check endpoint
 app.get('/', (req, res) => {
   res.json({ 
-    status: 'Universal Job Scraper API is running',
+    status: 'Universal Content Scraper API - n8n Ready',
     node_version: process.version,
     platform: process.platform,
     memory: process.memoryUsage(),
-    chrome_cache_dir: process.env.PUPPETEER_CACHE_DIR || '/opt/render/.cache/puppeteer',
     capabilities: [
-      'Universal website scraping',
-      'Keyword-based job detection',
-      'Anti-bot protection bypass',
-      'Flexible data extraction',
-      'Multiple website support',
-      'Auto Chrome installation'
+      'Universal HTML content extraction',
+      'JavaScript execution and waiting',
+      'CAPTCHA bypass with stealth mode',
+      'n8n-configurable selectors',
+      'Raw content + structured data',
+      'Infinite scalability via n8n'
     ],
     endpoints: {
-      scrape: 'POST /scrape - Scrape any website for job listings',
-      bulk_scrape: 'POST /bulk-scrape - Scrape multiple websites',
-      install_chrome: 'POST /install-chrome - Manually install Chrome',
-      health: 'GET / - Health check'
+      scrape: 'POST /scrape - Universal content scraping',
+      bulk_scrape: 'POST /bulk-scrape - Multiple sites',
+      raw_content: 'POST /raw-content - Get raw HTML + text',
+      install_chrome: 'POST /install-chrome - Chrome installation'
     }
   });
 });
 
-// Manual Chrome installation endpoint
-app.post('/install-chrome', async (req, res) => {
-  try {
-    console.log('🔧 Manual Chrome installation requested...');
-    
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-    
-    const { stdout, stderr } = await execAsync('npx puppeteer browsers install chrome', {
-      timeout: 300000 // 5 minutes
-    });
-    
-    // Test the installation
-    const testBrowser = await puppeteer.launch({ 
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    await testBrowser.close();
-    
-    res.json({
-      success: true,
-      message: 'Chrome installation completed and verified',
-      stdout: stdout,
-      stderr: stderr
-    });
-    
-  } catch (error) {
-    console.error('Chrome installation failed:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Chrome installation failed',
-      message: error.message
-    });
-  }
-});
-
-// Single website scraping endpoint
+// Universal scraping endpoint - n8n configures everything
 app.post('/scrape', async (req, res) => {
   try {
     const { 
       url, 
-      keywords = [], 
-      selectors = {},
-      limit = 20,
-      waitTime = 3000,
-      scrollPages = 1
+      selectors = {},  // n8n provides all selectors
+      waitTime = 5000,
+      scrollPages = 1,
+      javascript = true,  // Execute JS by default
+      screenshots = false,
+      extractAll = false  // If true, returns ALL page elements
     } = req.body;
     
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    console.log(`Starting scrape for: ${url} with keywords: ${keywords.join(', ')}`);
+    console.log(`🌐 Universal scrape: ${url}`);
     
-    const jobs = await scrapeWebsite({
+    const result = await universalScrape({
       url,
-      keywords,
       selectors,
-      limit,
       waitTime,
-      scrollPages
+      scrollPages,
+      javascript,
+      screenshots,
+      extractAll
     });
     
     res.json({
       success: true,
       url,
-      keywords,
-      totalJobs: jobs.length,
       scrapedAt: new Date().toISOString(),
-      jobs
+      ...result
     });
 
   } catch (error) {
@@ -116,78 +78,42 @@ app.post('/scrape', async (req, res) => {
   }
 });
 
-// Bulk scraping endpoint for multiple websites
-app.post('/bulk-scrape', async (req, res) => {
+// Raw content endpoint - for n8n to analyze and build selectors
+app.post('/raw-content', async (req, res) => {
   try {
-    const { websites = [] } = req.body;
+    const { url, waitTime = 5000 } = req.body;
     
-    if (!websites.length) {
-      return res.status(400).json({ error: 'Websites array is required' });
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
     }
 
-    console.log(`Starting bulk scrape for ${websites.length} websites`);
+    console.log(`📄 Getting raw content: ${url}`);
     
-    const results = [];
-    
-    for (const website of websites) {
-      try {
-        console.log(`Scraping: ${website.url}`);
-        
-        const jobs = await scrapeWebsite({
-          url: website.url,
-          keywords: website.keywords || [],
-          selectors: website.selectors || {},
-          limit: website.limit || 20,
-          waitTime: website.waitTime || 3000,
-          scrollPages: website.scrollPages || 1
-        });
-        
-        results.push({
-          success: true,
-          url: website.url,
-          keywords: website.keywords || [],
-          totalJobs: jobs.length,
-          jobs,
-          scrapedAt: new Date().toISOString()
-        });
-        
-        // Delay between websites to be respectful
-        await randomDelay(2000, 5000);
-        
-      } catch (error) {
-        console.error(`Error scraping ${website.url}:`, error);
-        results.push({
-          success: false,
-          url: website.url,
-          error: error.message,
-          scrapedAt: new Date().toISOString()
-        });
-      }
-    }
+    const result = await getRawContent(url, waitTime);
     
     res.json({
       success: true,
-      totalWebsites: websites.length,
-      successfulScrapes: results.filter(r => r.success).length,
-      results
+      url,
+      scrapedAt: new Date().toISOString(),
+      ...result
     });
 
   } catch (error) {
-    console.error('Bulk scraping error:', error);
+    console.error('Raw content error:', error);
     res.status(500).json({ 
-      error: 'Bulk scraping failed', 
+      error: 'Raw content extraction failed', 
       message: error.message 
     });
   }
 });
 
-async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scrollPages }) {
+async function universalScrape({ url, selectors, waitTime, scrollPages, javascript, screenshots, extractAll }) {
   let browser = null;
   
   try {
     console.log('🚀 Launching browser...');
     
-    // Launch browser with auto Chrome detection (no hardcoded paths)
+    // Launch browser with maximum stealth
     browser = await puppeteer.launch({
       headless: 'new',
       args: [
@@ -202,22 +128,19 @@ async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scroll
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
-        '--disable-features=TranslateUI',
+        '--disable-features=TranslateUI,VizDisplayCompositor',
         '--disable-ipc-flooding-protection',
         '--window-size=1366,768',
         '--memory-pressure-off'
       ],
-      timeout: 60000,
-      protocolTimeout: 60000
+      timeout: 60000
     });
 
-    console.log('✅ Browser launched successfully');
     const page = await browser.newPage();
     
-    // Set realistic viewport and user agent
+    // Set realistic viewport and headers
     await page.setViewport({ width: 1366, height: 768 });
     
-    // Set additional headers to look more human
     await page.setExtraHTTPHeaders({
       'Accept-Language': 'en-US,en;q=0.9',
       'Accept-Encoding': 'gzip, deflate, br',
@@ -230,33 +153,15 @@ async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scroll
       'Sec-Fetch-User': '?1'
     });
 
-    // Override navigator properties to look more human
+    // Advanced anti-detection
     await page.evaluateOnNewDocument(() => {
-      // Remove webdriver property
-      Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined,
-      });
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+      Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
       
-      // Override languages
-      Object.defineProperty(navigator, 'languages', {
-        get: () => ['en-US', 'en']
-      });
+      window.chrome = { runtime: {} };
       
-      // Override platform
-      Object.defineProperty(navigator, 'platform', {
-        get: () => 'Win32'
-      });
-
-      // Override plugins
-      Object.defineProperty(navigator, 'plugins', {
-        get: () => [1, 2, 3, 4, 5]
-      });
-
-      // Override chrome object
-      window.chrome = {
-        runtime: {}
-      };
-
       // Override permissions
       const originalQuery = window.navigator.permissions.query;
       window.navigator.permissions.query = (parameters) => (
@@ -264,32 +169,21 @@ async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scroll
           Promise.resolve({ state: Notification.permission }) :
           originalQuery(parameters)
       );
+      
+      // Hide automation indicators
+      delete Object.getPrototypeOf(navigator).webdriver;
     });
 
     console.log(`🌐 Navigating to: ${url}`);
     
     // Navigate to website
     await page.goto(url, { 
-      waitUntil: 'domcontentloaded',
+      waitUntil: javascript ? 'networkidle0' : 'domcontentloaded',
       timeout: 45000 
     });
 
-    console.log('⏳ Page loaded, waiting for content...');
-
-    // Wait for initial content to load
+    // Wait for content to load
     await randomDelay(waitTime, waitTime + 2000);
-
-    // Check if we got blocked
-    const title = await page.title();
-    console.log(`📄 Page title: ${title}`);
-    
-    if (title.toLowerCase().includes('blocked') || 
-        title.toLowerCase().includes('captcha') || 
-        title.toLowerCase().includes('access denied') ||
-        title.toLowerCase().includes('403') ||
-        title.toLowerCase().includes('forbidden')) {
-      throw new Error(`Blocked by website - Page title: ${title}`);
-    }
 
     // Scroll through pages if specified
     for (let i = 0; i < scrollPages; i++) {
@@ -302,274 +196,240 @@ async function scrapeWebsite({ url, keywords, selectors, limit, waitTime, scroll
       }
     }
 
-    // Extract job data using intelligent detection
-    const jobs = await page.evaluate((keywords, selectors, limit, url) => {
-      const extractedJobs = [];
-      
-      // Smart job detection - try multiple approaches
-      const jobElements = findJobElements(selectors);
-      
-      console.log(`Found ${jobElements.length} potential job elements`);
+    // Take screenshot if requested
+    let screenshot = null;
+    if (screenshots) {
+      screenshot = await page.screenshot({ 
+        encoding: 'base64',
+        fullPage: false
+      });
+    }
 
-      for (let i = 0; i < Math.min(jobElements.length, limit); i++) {
-        const jobElement = jobElements[i];
-        
-        try {
-          const job = extractJobData(jobElement, url, selectors);
-          
-          // Keyword filtering if keywords provided
-          if (keywords.length > 0) {
-            const jobText = `${job.title} ${job.description} ${job.company}`.toLowerCase();
-            const hasKeyword = keywords.some(keyword => 
-              jobText.includes(keyword.toLowerCase())
-            );
-            
-            if (!hasKeyword) continue;
-          }
-          
-          if (job.title && job.title.trim().length > 0) {
-            extractedJobs.push(job);
-          }
-        } catch (error) {
-          console.log('Error extracting job:', error);
-        }
-      }
+    // Get page metadata
+    const pageInfo = await page.evaluate(() => ({
+      title: document.title,
+      url: window.location.href,
+      description: document.querySelector('meta[name="description"]')?.content || '',
+      keywords: document.querySelector('meta[name="keywords"]')?.content || ''
+    }));
 
-      // Helper function to find job elements
-      function findJobElements(customSelectors) {
-        const selectors = [
-          // Custom selectors first
-          ...(customSelectors.jobContainer ? [customSelectors.jobContainer] : []),
-          
-          // Common job listing selectors
-          '[data-jk]', // Indeed
-          '.job_seen_beacon', // Indeed alternative
-          '.job-card', // Generic
-          '.job-item', // Generic
-          '.job-listing', // Generic
-          '.vacancy', // Generic
-          '.position', // Generic
-          '.career-item', // Career pages
-          '.job-result', // Job boards
-          '.opening', // Company pages
-          '[class*="job"]', // Any class containing "job"
-          '[class*="position"]', // Any class containing "position"
-          '[class*="vacancy"]', // Any class containing "vacancy"
-          '[class*="career"]', // Any class containing "career"
-          'article', // Article elements (common for job posts)
-          '.card', // Card layouts
-          '.list-item', // List items
-          '.row', // Bootstrap rows
-          'tr', // Table rows
-          'li' // List items
+    console.log(`📄 Page title: ${pageInfo.title}`);
+    
+    // Check if blocked
+    if (pageInfo.title.toLowerCase().includes('blocked') || 
+        pageInfo.title.toLowerCase().includes('captcha') || 
+        pageInfo.title.toLowerCase().includes('access denied')) {
+      throw new Error(`Blocked by website - Page title: ${pageInfo.title}`);
+    }
+
+    // Extract content based on n8n configuration
+    const extractedData = await page.evaluate((selectors, extractAll) => {
+      const results = {
+        elements: [],
+        counts: {},
+        rawData: {}
+      };
+
+      // If extractAll is true, return everything n8n can work with
+      if (extractAll) {
+        // Get all potential job containers
+        const allSelectors = [
+          'tr', 'li', 'div', 'article', 'section',
+          '[class*="job"]', '[class*="position"]', '[class*="card"]',
+          '[data-*]', '.row', '.item', '.listing'
         ];
         
-        let elements = [];
-        
-        for (const selector of selectors) {
+        allSelectors.forEach(selector => {
           try {
-            const found = Array.from(document.querySelectorAll(selector));
-            if (found.length > 0) {
-              console.log(`Found ${found.length} elements with selector: ${selector}`);
-              
-              // Filter elements that likely contain job data
-              const filtered = found.filter(el => {
-                const text = el.textContent.toLowerCase();
-                const hasJobKeywords = /job|position|vacancy|career|hiring|employment|work|role|opportunity/.test(text);
-                const hasMinContent = text.length > 50; // Minimum content length
-                return hasJobKeywords && hasMinContent;
-              });
-              
-              if (filtered.length > 0) {
-                elements = filtered;
-                break;
-              }
+            const elements = Array.from(document.querySelectorAll(selector));
+            results.counts[selector] = elements.length;
+            
+            if (elements.length > 0 && elements.length < 500) { // Reasonable limit
+              results.rawData[selector] = elements.slice(0, 20).map(el => ({
+                tagName: el.tagName,
+                className: el.className,
+                textContent: el.textContent.substring(0, 200),
+                innerHTML: el.innerHTML.substring(0, 300),
+                attributes: Array.from(el.attributes).reduce((acc, attr) => {
+                  acc[attr.name] = attr.value;
+                  return acc;
+                }, {})
+              }));
             }
           } catch (e) {
-            console.log(`Selector failed: ${selector}`, e);
-          }
-        }
-        
-        return elements;
-      }
-
-      // Helper function to extract job data from element
-      function extractJobData(element, baseUrl, customSelectors) {
-        const job = {
-          title: '',
-          company: '',
-          location: '',
-          salary: '',
-          description: '',
-          url: '',
-          datePosted: '',
-          jobId: '',
-          scrapedAt: new Date().toISOString(),
-          source: baseUrl
-        };
-
-        // Title extraction
-        const titleSelectors = [
-          customSelectors.title,
-          'h1', 'h2', 'h3', 'h4',
-          '[data-testid*="title"]',
-          '[class*="title"]',
-          '[class*="job-title"]',
-          '[class*="position"]',
-          'a[href*="job"]',
-          '.job-link',
-          'strong',
-          '.name'
-        ].filter(Boolean);
-        
-        job.title = getTextBySelectors(element, titleSelectors) || '';
-
-        // Company extraction
-        const companySelectors = [
-          customSelectors.company,
-          '[data-testid*="company"]',
-          '[class*="company"]',
-          '[class*="employer"]',
-          '[class*="organization"]',
-          '.company-name',
-          '.employer',
-          '.org'
-        ].filter(Boolean);
-        
-        job.company = getTextBySelectors(element, companySelectors) || '';
-
-        // Location extraction
-        const locationSelectors = [
-          customSelectors.location,
-          '[data-testid*="location"]',
-          '[class*="location"]',
-          '[class*="city"]',
-          '[class*="address"]',
-          '.location',
-          '.city',
-          '.address'
-        ].filter(Boolean);
-        
-        job.location = getTextBySelectors(element, locationSelectors) || '';
-
-        // Salary extraction
-        const salarySelectors = [
-          customSelectors.salary,
-          '[data-testid*="salary"]',
-          '[class*="salary"]',
-          '[class*="pay"]',
-          '[class*="wage"]',
-          '[class*="compensation"]',
-          '.salary',
-          '.pay',
-          '.wage'
-        ].filter(Boolean);
-        
-        job.salary = getTextBySelectors(element, salarySelectors) || '';
-
-        // Description extraction
-        const descriptionSelectors = [
-          customSelectors.description,
-          '[data-testid*="description"]',
-          '[data-testid*="snippet"]',
-          '[class*="description"]',
-          '[class*="summary"]',
-          '[class*="snippet"]',
-          '.description',
-          '.summary',
-          '.snippet',
-          'p'
-        ].filter(Boolean);
-        
-        job.description = getTextBySelectors(element, descriptionSelectors) || '';
-
-        // URL extraction
-        const linkElement = element.querySelector('a[href]') || 
-                            element.closest('a[href]') ||
-                            element.querySelector('[href]');
-        if (linkElement) {
-          let href = linkElement.getAttribute('href');
-          if (href) {
-            if (href.startsWith('/')) {
-              try {
-                const baseUrlObj = new URL(baseUrl);
-                href = `${baseUrlObj.protocol}//${baseUrlObj.host}${href}`;
-              } catch (e) {
-                href = `${baseUrl}${href}`;
-              }
-            } else if (!href.startsWith('http')) {
-              href = `${baseUrl}/${href}`;
-            }
-            job.url = href;
-          }
-        }
-
-        // Date extraction
-        const dateSelectors = [
-          customSelectors.date,
-          '[data-testid*="date"]',
-          '[class*="date"]',
-          '[class*="time"]',
-          '[class*="posted"]',
-          '.date',
-          '.time',
-          '.posted',
-          'time'
-        ].filter(Boolean);
-        
-        job.datePosted = getTextBySelectors(element, dateSelectors) || '';
-
-        // Job ID extraction
-        job.jobId = element.getAttribute('data-jk') || 
-                   element.getAttribute('id') || 
-                   element.getAttribute('data-id') ||
-                   `job_${Math.random().toString(36).substr(2, 9)}`;
-
-        // Clean up extracted data
-        Object.keys(job).forEach(key => {
-          if (typeof job[key] === 'string') {
-            job[key] = job[key].trim().replace(/\s+/g, ' ');
-            if (job[key].length > 500 && key === 'description') {
-              job[key] = job[key].substring(0, 500) + '...';
-            }
+            results.counts[selector] = `Error: ${e.message}`;
           }
         });
-
-        return job;
+        
+        return results;
       }
 
-      // Helper function to try multiple selectors
-      function getTextBySelectors(element, selectors) {
-        for (const selector of selectors) {
-          if (!selector) continue;
+      // Use n8n-provided selectors for structured extraction
+      if (Object.keys(selectors).length > 0) {
+        // n8n provides specific selectors for this website
+        const containerSelector = selectors.container || selectors.jobContainer || 'body';
+        const containers = Array.from(document.querySelectorAll(containerSelector));
+        
+        results.elements = containers.map((container, index) => {
+          const element = {};
           
-          try {
-            const el = element.querySelector(selector);
-            if (el) {
-              return el.getAttribute('title') || 
-                     el.getAttribute('aria-label') || 
-                     el.textContent.trim();
+          // Extract each field using n8n-provided selectors
+          Object.keys(selectors).forEach(field => {
+            if (field === 'container' || field === 'jobContainer') return;
+            
+            try {
+              const fieldSelector = selectors[field];
+              const fieldElement = container.querySelector(fieldSelector);
+              
+              if (fieldElement) {
+                element[field] = fieldElement.textContent.trim() || 
+                              fieldElement.getAttribute('href') || 
+                              fieldElement.getAttribute('src') ||
+                              fieldElement.getAttribute('title') ||
+                              fieldElement.getAttribute('data-value') ||
+                              fieldElement.innerHTML.substring(0, 200);
+              } else {
+                element[field] = null;
+              }
+            } catch (e) {
+              element[field] = `Error: ${e.message}`;
             }
-          } catch (e) {
-            // Selector failed, try next
-          }
-        }
-        return null;
+          });
+          
+          // Add metadata
+          element._index = index;
+          element._tagName = container.tagName;
+          element._className = container.className;
+          element._id = container.id;
+          
+          return element;
+        });
+        
+        results.counts.totalContainers = containers.length;
+        results.counts.extractedElements = results.elements.length;
       }
 
-      return extractedJobs;
-    }, keywords, selectors, limit, url);
+      return results;
+    }, selectors, extractAll);
 
-    console.log(`✅ Successfully scraped ${jobs.length} jobs from ${url}`);
-    return jobs;
+    console.log(`✅ Extracted data: ${extractedData.elements?.length || 0} elements`);
+
+    return {
+      pageInfo,
+      extractedData,
+      screenshot: screenshot ? `data:image/png;base64,${screenshot}` : null,
+      extractionMethod: extractAll ? 'discover_all' : 'n8n_selectors'
+    };
 
   } catch (error) {
-    console.error('❌ Error in scrapeWebsite:', error);
+    console.error('❌ Error in universalScrape:', error);
     throw error;
   } finally {
     if (browser) {
       console.log('🔒 Closing browser...');
       await browser.close();
+    }
+  }
+}
+
+async function getRawContent(url, waitTime) {
+  let browser = null;
+  
+  try {
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process']
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1366, height: 768 });
+    
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+    
+    const analysis = await page.evaluate(() => {
+      // Analyze page structure for n8n
+      const analysis = {
+        title: document.title,
+        url: window.location.href,
+        bodyText: document.body.textContent.substring(0, 3000),
+        htmlStructure: document.documentElement.outerHTML.substring(0, 2000),
+        elementCounts: {},
+        sampleElements: {},
+        suggestedSelectors: []
+      };
+      
+      // Count different element types
+      const selectors = [
+        'tr', 'li', 'div', 'article', 'section', 'span', 'p',
+        '.job', '.position', '.card', '.item', '.listing', '.row',
+        '[class*="job"]', '[class*="position"]', '[data-*]'
+      ];
+      
+      selectors.forEach(selector => {
+        try {
+          const elements = document.querySelectorAll(selector);
+          analysis.elementCounts[selector] = elements.length;
+          
+          // Sample first few elements
+          if (elements.length > 0 && elements.length < 1000) {
+            analysis.sampleElements[selector] = Array.from(elements).slice(0, 3).map(el => ({
+              tagName: el.tagName,
+              className: el.className,
+              textPreview: el.textContent.substring(0, 100),
+              hasLinks: el.querySelector('a') ? true : false,
+              childCount: el.children.length
+            }));
+          }
+        } catch (e) {
+          analysis.elementCounts[selector] = `Error: ${e.message}`;
+        }
+      });
+      
+      // Suggest likely job container selectors
+      Object.keys(analysis.elementCounts).forEach(selector => {
+        const count = analysis.elementCounts[selector];
+        if (typeof count === 'number' && count > 5 && count < 200) {
+          analysis.suggestedSelectors.push({
+            selector,
+            count,
+            confidence: count > 10 && count < 100 ? 'high' : 'medium'
+          });
+        }
+      });
+      
+      return analysis;
+    });
+    
+    return analysis;
+
+  } catch (error) {
+    console.error('❌ Error in getRawContent:', error);
+    throw error;
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+// Auto-install Chrome on startup
+async function installChromeOnStartup() {
+  try {
+    const testBrowser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
+    await testBrowser.close();
+    console.log('✅ Chrome is available');
+  } catch (error) {
+    console.log('📦 Installing Chrome...');
+    try {
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+      
+      await execAsync('npx puppeteer browsers install chrome', { timeout: 300000 });
+      console.log('✅ Chrome installation completed');
+    } catch (installError) {
+      console.error('❌ Chrome installation failed:', installError.message);
     }
   }
 }
@@ -580,60 +440,22 @@ function randomDelay(min, max) {
   return new Promise(resolve => setTimeout(resolve, delay));
 }
 
-// Auto-install Chrome on startup
-async function installChromeOnStartup() {
+// Manual Chrome installation endpoint
+app.post('/install-chrome', async (req, res) => {
   try {
-    console.log('🔍 Checking Chrome installation...');
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
     
-    // Try to launch browser to test if Chrome exists
-    const testBrowser = await puppeteer.launch({ 
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    await testBrowser.close();
-    console.log('✅ Chrome is already available');
+    const { stdout } = await execAsync('npx puppeteer browsers install chrome', { timeout: 300000 });
     
+    res.json({ success: true, message: 'Chrome installed', output: stdout });
   } catch (error) {
-    console.log('❌ Chrome not found, installing...');
-    
-    try {
-      const { exec } = require('child_process');
-      const { promisify } = require('util');
-      const execAsync = promisify(exec);
-      
-      console.log('📦 Installing Chrome via Puppeteer...');
-      await execAsync('npx puppeteer browsers install chrome', { 
-        timeout: 300000 // 5 minutes
-      });
-      
-      console.log('✅ Chrome installation completed');
-      
-      // Test installation
-      const testBrowser = await puppeteer.launch({ 
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
-      await testBrowser.close();
-      console.log('✅ Chrome installation verified');
-      
-    } catch (installError) {
-      console.error('❌ Chrome installation failed:', installError.message);
-    }
+    res.status(500).json({ success: false, error: error.message });
   }
-}
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully...');
-  process.exit(0);
 });
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  process.exit(0);
-});
-
-// Error handling middleware
+// Error handling
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
   res.status(500).json({ error: 'Internal server error' });
@@ -641,127 +463,13 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Universal Job Scraper API running on port ${PORT}`);
+  console.log(`🚀 Universal Content Scraper API running on port ${PORT}`);
   console.log(`📋 Node.js version: ${process.version}`);
   console.log(`💻 Platform: ${process.platform}`);
-  console.log(`💾 Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
+  console.log(`🎯 Ready for n8n-driven infinite scalability!`);
   
-  // Install Chrome on startup after a brief delay
-  setTimeout(() => {
-    installChromeOnStartup();
-  }, 5000); // Wait 5 seconds after server starts
+  // Install Chrome on startup
+  setTimeout(installChromeOnStartup, 5000);
 });
-// Add this debug endpoint to your server.js (after other endpoints)
 
-app.post('/debug-scrape', async (req, res) => {
-  let browser = null;
-  
-  try {
-    const { url } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ error: 'URL is required' });
-    }
-
-    console.log(`🔍 Debug scraping: ${url}`);
-    
-    // Launch browser
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--single-process'
-      ]
-    });
-
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1366, height: 768 });
-    
-    // Navigate to page
-    await page.goto(url, { 
-      waitUntil: 'domcontentloaded',
-      timeout: 45000 
-    });
-    
-    // Wait a bit
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
-    // Get page info
-    const title = await page.title();
-    const pageUrl = page.url();
-    
-    // Get page content (first 2000 chars)
-    const bodyText = await page.evaluate(() => {
-      return document.body ? document.body.textContent.substring(0, 2000) : 'No body found';
-    });
-    
-    // Test our selectors
-    const selectorResults = await page.evaluate(() => {
-      const selectors = [
-        '[data-jk]',
-        '.job_seen_beacon', 
-        '.job-card',
-        '.job-item',
-        '.job-listing',
-        'article',
-        '.card',
-        'tr',
-        'li'
-      ];
-      
-      const results = {};
-      
-      selectors.forEach(selector => {
-        try {
-          const elements = document.querySelectorAll(selector);
-          results[selector] = {
-            count: elements.length,
-            firstElementText: elements[0] ? elements[0].textContent.substring(0, 100) : 'none'
-          };
-        } catch (e) {
-          results[selector] = { error: e.message };
-        }
-      });
-      
-      return results;
-    });
-    
-    // Get HTML structure (first 1000 chars)
-    const htmlStructure = await page.evaluate(() => {
-      return document.documentElement.outerHTML.substring(0, 1000);
-    });
-    
-    res.json({
-      success: true,
-      url: url,
-      actualUrl: pageUrl,
-      title: title,
-      bodyTextSample: bodyText,
-      selectorResults: selectorResults,
-      htmlStructureSample: htmlStructure,
-      debugInfo: {
-        message: 'This shows what the scraper actually sees',
-        possibleIssues: [
-          'Page requires JavaScript to load content',
-          'Page is showing CAPTCHA or blocking message', 
-          'Selectors need to be updated for new HTML structure',
-          'Page redirected to different URL'
-        ]
-      }
-    });
-
-  } catch (error) {
-    console.error('Debug scraping error:', error);
-    res.status(500).json({ 
-      error: 'Debug scraping failed', 
-      message: error.message 
-    });
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
-  }
-});
 module.exports = app;
